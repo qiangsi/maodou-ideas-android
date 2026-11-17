@@ -175,7 +175,7 @@ class MainActivity : Activity() {
 
     private fun copyText(text: String) {
         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        cm.primaryClip = android.content.ClipData.newPlainText("毛豆灵感", text)
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("毛豆灵感", text))
         toast("已复制")
     }
 
@@ -389,7 +389,7 @@ class MainActivity : Activity() {
                     seconds = ((60000 - millisUntilFinished) / 1000).toInt()
                     timer.text = "0:${String.format(Locale.US, "%02d", seconds)}"
                     val bars = "▂▄▆█▆▄▂▄▆▇▅▃▂▄▆█▃▅▇▄▂▄▆█▆▄"
-                    wave.text = bars.shuffled().take(20).joinToString("")
+                    wave.text = bars.toList().shuffled().take(20).joinToString("")
                 }
                 override fun onFinish() { stopRecord() }
             }.start()
