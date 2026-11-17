@@ -1,0 +1,411 @@
+package com.maodou.ideas
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
+import android.os.Bundle
+import android.os.CountDownTimer
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import android.app.Activity
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
+
+class MainActivity : Activity() {
+
+    // Backend endpoint. sharecode is required by the hosting gateway on every request.
+    private val base = "https://wbapp-gesugud1oymreklydekjnm.app.workbuddy.host"
+    private val share = "sharecode=OJH77TM527"
+    private val audioCacheMax = 24 * 1024 * 1024
+
+    private lateinit var tabText: TextView
+    private lateinit var tabVoice: TextView
+    private lateinit var panelText: View
+    private lateinit var panelVoice: View
+    private lateinit var textInput: EditText
+    private lateinit var charCount: TextView
+    private lateinit var chipRow: LinearLayout
+    private lateinit var submitText: Button
+    private lateinit var wave: TextView
+    private lateinit var timer: TextView
+    private lateinit var voiceTip: TextView
+    private lateinit var recBtn: Button
+    private lateinit var voiceNote: EditText
+    private lateinit var submitVoice: Button
+    private lateinit var ideaList: LinearLayout
+    private lateinit var ideaCount: TextView
+
+    private var selectedTag = "产品建议"
+    private var recorder: MediaRecorder? = null
+    private var recording = false
+    private var recordFile = ""
+    private var pendingAudioBase64: String? = null
+    private var pendingDuration = ""
+    private var ticker: CountDownTimer? = null
+    private var seconds = 0
+    private var mediaPlayer: MediaPlayer? = null
+    private val main = Handler(Looper.getMainLooper())
+
+    private val REQUEST_RECORD = 7
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        tabText = findViewById(R.id.tabText)
+        tabVoice = findViewById(R.id.tabVoice)
+        panelText = findViewById(R.id.panelText)
+        panelVoice = findViewById(R.id.panelVoice)
+        textInput = findViewById(R.id.textInput)
+        charCount = findViewById(R.id.charCount)
+        chipRow = findViewById(R.id.chipRow)
+        submitText = findViewById(R.id.submitText)
+        wave = findViewById(R.id.wave)
+        timer = findViewById(R.id.timer)
+        voiceTip = findViewById(R.id.voiceTip)
+        recBtn = findViewById(R.id.recBtn)
+        voiceNote = findViewById(R.id.voiceNote)
+        submitVoice = findViewById(R.id.submitVoice)
+        ideaList = findViewById(R.id.ideaList)
+        ideaCount = findViewById(R.id.ideaCount)
+
+        tabText.setOnClickListener { switchTab(true) }
+        tabVoice.setOnClickListener { switchTab(false) }
+
+        textInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                charCount.text = "${s?.length ?: 0} / 500"
+            }
+        })
+
+        for (i in 0 until chipRow.childCount) {
+            val chip = chipRow.getChildAt(i) as TextView
+            chip.setOnClickListener {
+                selectedTag = chip.tag as String
+                for (j in 0 until chipRow.childCount) {
+                    val c = chipRow.getChildAt(j) as TextView
+                    if (c === chip) {
+                        c.setBackgroundResource(R.drawable.bg_chip_on)
+                        c.setTextColor(resources.getColor(R.color.deep_green))
+                    } else {
+                        c.setBackgroundResource(R.drawable.bg_chip_off)
+                        c.setTextColor(resources.getColor(R.color.muted))
+                    }
+                }
+            }
+        }
+
+        submitText.setOnClickListener { submitIdea() }
+        recBtn.setOnClickListener { toggleRecord() }
+        submitVoice.setOnClickListener { submitVoiceIdea() }
+
+        loadIdeas()
+    }
+
+    private fun switchTab(text: Boolean) {
+        panelText.visibility = if (text) View.VISIBLE else View.GONE
+        panelVoice.visibility = if (text) View.GONE else View.VISIBLE
+        tabText.setBackgroundResource(if (text) R.drawable.bg_tab_on else 0)
+        tabVoice.setBackgroundResource(if (text) 0 else R.drawable.bg_tab_on)
+        tabText.setTextColor(resources.getColor(if (text) R.color.deep_green else R.color.faint))
+        tabVoice.setTextColor(resources.getColor(if (text) R.color.faint else R.color.deep_green))
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+
+    private fun withPath(path: String): String =
+        if (path.contains("?")) "$path&$share" else "$path?$share"
+
+    private fun httpPost(path: String, json: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = URL(base + withPath(path)).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            conn.doOutput = true
+            OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(json) }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            stream?.bufferedReader()?.use { it.readText() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun httpGet(path: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = URL(base + withPath(path)).openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun submitIdea() {
+        val content = textInput.text.toString().trim()
+        if (content.isEmpty()) { toast("先写点什么吧"); return }
+        submitText.isEnabled = false
+        Thread {
+            val body = JSONObject().apply {
+                put("type", "text")
+                put("content", content)
+                put("tag", selectedTag)
+                put("ts", System.currentTimeMillis())
+            }.toString()
+            val res = httpPost("/api/ideas", body)
+            main.post {
+                submitText.isEnabled = true
+                if (res != null && JSONObject(res).optBoolean("ok")) {
+                    textInput.setText("")
+                    toast("收下了，灵感已记下")
+                    loadIdeas()
+                } else {
+                    toast("提交失败，检查网络后再试")
+                }
+            }
+        }.start()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun toggleRecord() {
+        if (recording) {
+            stopRecord()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD)
+            return
+        }
+        try {
+            recordFile = "${cacheDir}/voice_${System.currentTimeMillis()}.m4a"
+            recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(this)
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(64000)
+                setAudioSamplingRate(44100)
+                setOutputFile(recordFile)
+                prepare()
+                start()
+            }
+            recording = true
+            seconds = 0
+            recBtn.text = "■"
+            voiceTip.text = "正在录音，再点一次结束"
+            ticker = object : CountDownTimer(60000, 200) {
+                override fun onTick(millisUntilFinished: Long) {
+                    seconds = ((60000 - millisUntilFinished) / 1000).toInt()
+                    timer.text = "0:${String.format(Locale.US, "%02d", seconds)}"
+                    val bars = "▂▄▆█▆▄▂▄▆▇▅▃▂▄▆█▃▅▇▄▂▄▆█▆▄"
+                    wave.text = bars.shuffled().take(20).joinToString("")
+                }
+                override fun onFinish() { stopRecord() }
+            }.start()
+        } catch (e: Exception) {
+            toast("录音启动失败：${e.message}")
+        }
+    }
+
+    private fun stopRecord() {
+        if (!recording) return
+        recording = false
+        ticker?.cancel()
+        try {
+            recorder?.stop()
+        } catch (e: Exception) {
+        } finally {
+            recorder?.release()
+            recorder = null
+        }
+        val file = java.io.File(recordFile)
+        if (file.exists() && file.length() > 0 && file.length() <= audioCacheMax) {
+            val bytes = file.readBytes()
+            pendingAudioBase64 = "data:audio/mp4;base64," +
+                android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            pendingDuration = "0:${String.format(Locale.US, "%02d", maxOf(1, seconds))}"
+            submitVoice.isEnabled = true
+            voiceTip.text = "录好了 · $pendingDuration，可以加个备注"
+        } else {
+            voiceTip.text = "没录到声音，再点一次试试"
+        }
+        recBtn.text = "●"
+    }
+
+    private fun submitVoiceIdea() {
+        val audio = pendingAudioBase64
+        if (audio == null) { toast("先录一段语音"); return }
+        submitVoice.isEnabled = false
+        Thread {
+            val body = JSONObject().apply {
+                put("type", "voice")
+                put("content", voiceNote.text.toString().trim())
+                put("tag", selectedTag)
+                put("duration", pendingDuration)
+                put("audio", audio)
+                put("ts", System.currentTimeMillis())
+            }.toString()
+            val res = httpPost("/api/ideas", body)
+            main.post {
+                submitVoice.isEnabled = true
+                if (res != null && JSONObject(res).optBoolean("ok")) {
+                    pendingAudioBase64 = null
+                    voiceNote.setText("")
+                    timer.text = "0:00"
+                    voiceTip.text = "点一下开始说话"
+                    toast("语音已收下")
+                    loadIdeas()
+                } else {
+                    toast("提交失败，检查网络后再试")
+                }
+            }
+        }.start()
+    }
+
+    private fun loadIdeas() {
+        Thread {
+            val res = httpGet("/api/ideas")
+            main.post {
+                if (res == null) {
+                    ideaList.removeAllViews()
+                    val t = TextView(this)
+                    t.text = "暂时读不到灵感，检查网络后重开 App"
+                    t.setTextColor(resources.getColor(R.color.faint))
+                    t.textSize = 13f
+                    t.setPadding(0, 60, 0, 0)
+                    ideaList.addView(t)
+                    return@post
+                }
+                val arr = JSONObject(res).optJSONArray("items") ?: JSONArray()
+                ideaCount.text = "${arr.length()} 条"
+                ideaList.removeAllViews()
+                if (arr.length() == 0) {
+                    val t = TextView(this)
+                    t.text = "还没有灵感，先写一句或者说一段吧\n提交后就会出现在这里"
+                    t.setTextColor(resources.getColor(R.color.faint))
+                    t.textSize = 13f
+                    t.gravity = android.view.Gravity.CENTER
+                    t.setPadding(0, 60, 0, 0)
+                    ideaList.addView(t)
+                    return@post
+                }
+                for (i in 0 until arr.length()) {
+                    addIdeaCard(arr.getJSONObject(i))
+                }
+            }
+        }.start()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun addIdeaCard(item: JSONObject) {
+        val v = LayoutInflater.from(this).inflate(R.layout.item_idea, ideaList, false)
+        val card = v.findViewById<LinearLayout>(R.id.card)
+        val tag = v.findViewById<TextView>(R.id.tag)
+        val time = v.findViewById<TextView>(R.id.time)
+        val body = v.findViewById<TextView>(R.id.body)
+        val play = v.findViewById<Button>(R.id.play)
+        val del = v.findViewById<Button>(R.id.delete)
+
+        val type = item.optString("type", "text")
+        val isVoice = type == "voice"
+        card.setBackgroundResource(if (isVoice) R.drawable.bg_idea_voice else R.drawable.bg_idea)
+        tag.text = "${item.optString("tag", "随手记")}${if (isVoice) " · 语音 ${item.optString("duration", "")}" else ""}"
+        if (isVoice) tag.setBackgroundResource(R.drawable.bg_chip_on)
+        body.text = item.optString("content").ifEmpty { "（这段语音没有加文字备注）" }
+
+        val fmt = SimpleDateFormat("M月d日 HH:mm", Locale.CHINA)
+        time.text = fmt.format(Date(item.optLong("ts", System.currentTimeMillis())))
+
+        val audioUrl = item.optString("audioUrl", "")
+        if (isVoice && audioUrl.isNotEmpty()) {
+            play.visibility = View.VISIBLE
+            play.setOnClickListener { playAudio(audioUrl) }
+        }
+
+        val id = item.optString("id", "")
+        del.setOnClickListener {
+            Thread {
+                val res = httpPost("/api/delete", JSONObject().put("id", id).toString())
+                main.post {
+                    if (res != null && JSONObject(res).optBoolean("ok")) {
+                        toast("已删除")
+                        loadIdeas()
+                    } else {
+                        toast("删除失败")
+                    }
+                }
+            }.start()
+        }
+        ideaList.addView(v)
+    }
+
+    private fun playAudio(url: String) {
+        try {
+            mediaPlayer?.release()
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(base + withPath(url))
+                setOnPreparedListener { start() }
+                setOnErrorListener { _, _, _ -> toast("播放失败"); true }
+                prepareAsync()
+            }
+        } catch (e: Exception) {
+            toast("播放失败：${e.message}")
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_RECORD &&
+            grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            toggleRecord()
+        } else {
+            toast("需要麦克风权限才能录音")
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ticker?.cancel()
+        recorder?.release()
+        mediaPlayer?.release()
+    }
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cream">#F8F5F0</color>
+    <color name="green">#87A878</color>
+    <color name="deep_green">#4E7042</color>
+    <color name="dark_green">#2F4430</color>
+    <color name="terra">#D89575</color>
+    <color name="ink">#1F1E1B</color>
+    <color name="muted">#5C5A55</color>
+    <color name="faint">#9B978E</color>
+    <color name="white">#FFFFFF</color>
+    <color name="line">#E7E9E1</color>
+</resources>

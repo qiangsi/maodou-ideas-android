@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    android:background="@drawable/bg_idea"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_chip_on"
+            android:paddingStart="11dp"
+            android:paddingEnd="11dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:text="产品建议"
+            android:textColor="@color/deep_green"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="今天 09:42"
+            android:textColor="@color/faint"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textColor="@color/ink"
+        android:textSize="14sp"
+        android:lineSpacingExtra="3dp" />
+
+    <Button
+        android:id="@+id/play"
+        android:layout_width="wrap_content"
+        android:layout_height="38dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/bg_primary"
+        android:minWidth="0dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="▶ 播放语音"
+        android:textAllCaps="false"
+        android:textColor="@color/white"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/delete"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="?android:attr/selectableItemBackground"
+        android:minHeight="0dp"
+        android:padding="4dp"
+        android:text="删除这条"
+        android:textAllCaps="false"
+        android:textColor="#B7B3AA"
+        android:textSize="12sp" />
+</LinearLayout>
