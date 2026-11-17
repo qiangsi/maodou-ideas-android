@@ -2,8 +2,12 @@ package com.maodou.ideas
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
@@ -49,6 +53,8 @@ class MainActivity : Activity() {
     private lateinit var voiceTip: TextView
     private lateinit var recBtn: Button
     private lateinit var voiceNote: EditText
+    private lateinit var asrText: EditText
+    private lateinit var copyAsr: Button
     private lateinit var submitVoice: Button
     private lateinit var ideaList: LinearLayout
     private lateinit var ideaCount: TextView
@@ -62,6 +68,9 @@ class MainActivity : Activity() {
     private var ticker: CountDownTimer? = null
     private var seconds = 0
     private var mediaPlayer: MediaPlayer? = null
+    private var speech: SpeechRecognizer? = null
+    private var asrFinal = StringBuilder()
+    private var asrSupported = false
     private val main = Handler(Looper.getMainLooper())
 
     private val REQUEST_RECORD = 7
@@ -83,9 +92,21 @@ class MainActivity : Activity() {
         voiceTip = findViewById(R.id.voiceTip)
         recBtn = findViewById(R.id.recBtn)
         voiceNote = findViewById(R.id.voiceNote)
+        asrText = findViewById(R.id.asrText)
+        copyAsr = findViewById(R.id.copyAsr)
         submitVoice = findViewById(R.id.submitVoice)
         ideaList = findViewById(R.id.ideaList)
         ideaCount = findViewById(R.id.ideaCount)
+
+        asrSupported = SpeechRecognizer.isRecognitionAvailable(this)
+        if (!asrSupported) {
+            asrText.hint = "此设备不支持自动转写，可手动输入文字"
+        }
+        copyAsr.setOnClickListener {
+            val t = asrText.text.toString().trim()
+            if (t.isEmpty()) { toast("还没有文字"); return@setOnClickListener }
+            copyText(t)
+        }
 
         tabText.setOnClickListener { switchTab(true) }
         tabVoice.setOnClickListener { switchTab(false) }
@@ -132,6 +153,68 @@ class MainActivity : Activity() {
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+
+    private fun copyText(text: String) {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.primaryClip = android.content.ClipData.newPlainText("毛豆灵感", text)
+        toast("已复制")
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startAsr() {
+        if (!asrSupported) return
+        try {
+            speech?.destroy()
+            speech = SpeechRecognizer.createSpeechRecognizer(this)
+            speech?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onError(error: Int) {
+                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                        toast("语音识别需要麦克风权限")
+                    }
+                }
+                override fun onResults(results: Bundle?) {
+                    val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val text = list?.firstOrNull().orEmpty()
+                    if (text.isNotEmpty()) {
+                        if (asrFinal.isNotEmpty()) asrFinal.append("")
+                        asrFinal.append(text)
+                        asrText.setText(asrFinal.toString())
+                        asrText.setSelection(asrText.text.length)
+                    }
+                }
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val list = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val text = list?.firstOrNull().orEmpty()
+                    main.post {
+                        asrText.setText(asrFinal.toString() + text)
+                        asrText.setSelection(asrText.text.length)
+                    }
+                }
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+            asrFinal = StringBuilder()
+            asrText.setText("")
+            speech?.startListening(intent)
+        } catch (e: Exception) {
+            asrSupported = false
+            asrText.hint = "自动转写不可用，可手动输入文字"
+        }
+    }
+
+    private fun stopAsr() {
+        try { speech?.stopListening() } catch (e: Exception) {}
+    }
 
     private fun withPath(path: String): String =
         if (path.contains("?")) "$path&$share" else "$path?$share"
@@ -227,6 +310,7 @@ class MainActivity : Activity() {
             }
             recording = true
             seconds = 0
+            startAsr()
             recBtn.text = "■"
             voiceTip.text = "正在录音，再点一次结束"
             ticker = object : CountDownTimer(60000, 200) {
@@ -247,6 +331,7 @@ class MainActivity : Activity() {
         if (!recording) return
         recording = false
         ticker?.cancel()
+        stopAsr()
         try {
             recorder?.stop()
         } catch (e: Exception) {
@@ -276,6 +361,7 @@ class MainActivity : Activity() {
             val body = JSONObject().apply {
                 put("type", "voice")
                 put("content", voiceNote.text.toString().trim())
+                put("transcript", asrText.text.toString().trim())
                 put("tag", selectedTag)
                 put("duration", pendingDuration)
                 put("audio", audio)
@@ -287,9 +373,11 @@ class MainActivity : Activity() {
                 if (res != null && JSONObject(res).optBoolean("ok")) {
                     pendingAudioBase64 = null
                     voiceNote.setText("")
+                    asrText.setText("")
+                    asrFinal = StringBuilder()
                     timer.text = "0:00"
                     voiceTip.text = "点一下开始说话"
-                    toast("语音已收下")
+                    toast("语音和文字都收下了")
                     loadIdeas()
                 } else {
                     toast("提交失败，检查网络后再试")
@@ -340,6 +428,11 @@ class MainActivity : Activity() {
         val time = v.findViewById<TextView>(R.id.time)
         val body = v.findViewById<TextView>(R.id.body)
         val play = v.findViewById<Button>(R.id.play)
+        val transcriptView = v.findViewById<TextView>(R.id.transcript)
+        val transcriptActions = v.findViewById<LinearLayout>(R.id.transcriptActions)
+        val copyTextBtn = v.findViewById<Button>(R.id.copyText)
+        val editTextBtn = v.findViewById<Button>(R.id.editText)
+        val noteView = v.findViewById<TextView>(R.id.note)
         val del = v.findViewById<Button>(R.id.delete)
 
         val type = item.optString("type", "text")
@@ -359,6 +452,41 @@ class MainActivity : Activity() {
         }
 
         val id = item.optString("id", "")
+        val transcript = item.optString("transcript", "")
+        if (isVoice && transcript.isNotEmpty()) {
+            transcriptView.text = transcript
+            transcriptView.visibility = View.VISIBLE
+            transcriptActions.visibility = View.VISIBLE
+            copyTextBtn.setOnClickListener { copyText(transcript) }
+            editTextBtn.setOnClickListener {
+                val input = EditText(this)
+                input.setText(transcriptView.text.toString())
+                input.setSelection(input.text.length)
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("编辑转写文字")
+                    .setView(input)
+                    .setPositiveButton("保存") { _, _ ->
+                        val value = input.text.toString().trim()
+                        Thread {
+                            val res = httpPost("/api/edit", JSONObject().apply {
+                                put("id", id); put("transcript", value)
+                            }.toString())
+                            main.post {
+                                if (res != null && JSONObject(res).optBoolean("ok")) {
+                                    toast("已更新"); loadIdeas()
+                                } else toast("更新失败")
+                            }
+                        }.start()
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+        }
+        val note = item.optString("content", "")
+        if (isVoice && note.isNotEmpty()) {
+            noteView.text = "备注：$note"
+            noteView.visibility = View.VISIBLE
+        }
         del.setOnClickListener {
             Thread {
                 val res = httpPost("/api/delete", JSONObject().put("id", id).toString())
@@ -407,5 +535,6 @@ class MainActivity : Activity() {
         ticker?.cancel()
         recorder?.release()
         mediaPlayer?.release()
+        speech?.destroy()
     }
 }

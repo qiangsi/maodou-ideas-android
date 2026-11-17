@@ -65,6 +65,61 @@
         android:textSize="12sp"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/transcript"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="@color/ink"
+        android:textSize="14sp"
+        android:lineSpacingExtra="3dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/transcriptActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/copyText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:padding="4dp"
+            android:text="复制文字"
+            android:textAllCaps="false"
+            android:textColor="@color/deep_green"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/editText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:padding="4dp"
+            android:text="编辑文字"
+            android:textAllCaps="false"
+            android:textColor="@color/deep_green"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="@color/faint"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
     <Button
         android:id="@+id/delete"
         android:layout_width="wrap_content"
