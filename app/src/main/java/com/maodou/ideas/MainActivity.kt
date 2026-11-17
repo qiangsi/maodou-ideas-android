@@ -38,6 +38,8 @@ class MainActivity : Activity() {
     // Backend endpoint. sharecode is required by the hosting gateway on every request.
     private val base = "https://wbapp-gesugud1oymreklydekjnm.app.workbuddy.host"
     private val share = "sharecode=OJH77TM527"
+    // Access code for reading / editing ideas. Must match the server's MAODOU_CODE.
+    private val accessCode = "maodou2026"
     private val audioCacheMax = 24 * 1024 * 1024
 
     private lateinit var tabText: TextView
@@ -216,8 +218,10 @@ class MainActivity : Activity() {
         try { speech?.stopListening() } catch (e: Exception) {}
     }
 
-    private fun withPath(path: String): String =
-        if (path.contains("?")) "$path&$share" else "$path?$share"
+    private fun withPath(path: String): String {
+        val q = "$share&code=${java.net.URLEncoder.encode(accessCode, "UTF-8")}"
+        return if (path.contains("?")) "$path&$q" else "$path?$q"
+    }
 
     private fun httpPost(path: String, json: String): String? {
         var conn: HttpURLConnection? = null
