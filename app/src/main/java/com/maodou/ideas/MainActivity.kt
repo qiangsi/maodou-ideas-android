@@ -350,11 +350,32 @@ class MainActivity : Activity() {
                 android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
             pendingDuration = "0:${String.format(Locale.US, "%02d", maxOf(1, seconds))}"
             submitVoice.isEnabled = true
-            voiceTip.text = "录好了 · $pendingDuration，可以加个备注"
+            voiceTip.text = "正在转成文字…"
+            serverTranscribe(pendingAudioBase64!!)
         } else {
             voiceTip.text = "没录到声音，再点一次试试"
         }
         recBtn.text = "●"
+    }
+
+    private fun serverTranscribe(audio: String) {
+        Thread {
+            val res = httpPost("/api/transcribe", JSONObject().put("audio", audio).toString())
+            main.post {
+                if (res != null) {
+                    try {
+                        val j = JSONObject(res)
+                        val tr = j.optString("transcript", "")
+                        if (j.optBoolean("ok") && tr.isNotEmpty()) {
+                            asrText.setText(tr)
+                            voiceTip.text = "已自动转成文字，可修改后提交"
+                            return@post
+                        }
+                    } catch (e: Exception) {}
+                }
+                voiceTip.text = if (asrSupported) "已用本机识别，可修改" else "请手动输入文字"
+            }
+        }.start()
     }
 
     private fun submitVoiceIdea() {
