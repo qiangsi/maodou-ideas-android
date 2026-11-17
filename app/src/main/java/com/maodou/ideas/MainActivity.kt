@@ -60,6 +60,10 @@ class MainActivity : Activity() {
     private lateinit var submitVoice: Button
     private lateinit var ideaList: LinearLayout
     private lateinit var ideaCount: TextView
+    private lateinit var myUidView: TextView
+    private lateinit var queryUid: EditText
+    private lateinit var queryResult: TextView
+    private var myUid = ""
 
     private var selectedTag = "产品建议"
     private var recorder: MediaRecorder? = null
@@ -99,6 +103,19 @@ class MainActivity : Activity() {
         submitVoice = findViewById(R.id.submitVoice)
         ideaList = findViewById(R.id.ideaList)
         ideaCount = findViewById(R.id.ideaCount)
+        myUidView = findViewById(R.id.myUid)
+        queryUid = findViewById(R.id.queryUid)
+        queryResult = findViewById(R.id.queryResult)
+
+        val prefs = getSharedPreferences("maodou", MODE_PRIVATE)
+        myUid = prefs.getString("uid", "").orEmpty()
+        if (myUid.matches(Regex("^\\d{9,12}$"))) myUidView.text = myUid else ensureUid(prefs)
+
+        findViewById<Button>(R.id.copyUid).setOnClickListener {
+            if (myUid.isEmpty()) { toast("编号还没生成"); return@setOnClickListener }
+            copyText(myUid)
+        }
+        findViewById<Button>(R.id.doQuery).setOnClickListener { queryMyRecords() }
 
         asrSupported = SpeechRecognizer.isRecognitionAvailable(this)
         if (!asrSupported) {
@@ -160,6 +177,55 @@ class MainActivity : Activity() {
         val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.primaryClip = android.content.ClipData.newPlainText("毛豆灵感", text)
         toast("已复制")
+    }
+
+    private fun ensureUid(prefs: android.content.SharedPreferences) {
+        Thread {
+            val res = httpPost("/api/user/new", "{}")
+            main.post {
+                if (res != null) {
+                    try {
+                        val j = JSONObject(res)
+                        val id = j.optString("uid", "")
+                        if (id.matches(Regex("^\\d{9,12}$"))) {
+                            myUid = id
+                            prefs.edit().putString("uid", id).apply()
+                            myUidView.text = id
+                            return@post
+                        }
+                    } catch (e: Exception) {}
+                }
+                myUidView.text = "获取失败"
+            }
+        }.start()
+    }
+
+    private fun queryMyRecords() {
+        val id = queryUid.text.toString().trim()
+        if (!id.matches(Regex("^\\d{9,12}$"))) { toast("请输入 9-12 位数字编号"); return }
+        queryResult.visibility = View.VISIBLE
+        queryResult.text = "查询中…"
+        Thread {
+            val res = httpGet("/api/user/$id/records")
+            main.post {
+                if (res == null) { queryResult.text = "网络出错"; return@post }
+                try {
+                    val j = JSONObject(res)
+                    val items = j.optJSONArray("items") ?: JSONArray()
+                    if (items.length() == 0) { queryResult.text = "这个编号还没有记录"; return@post }
+                    val sb = StringBuilder("编号 $id · 共 ${items.length()} 条记录\n")
+                    for (i in 0 until minOf(items.length(), 5)) {
+                        val x = items.getJSONObject(i)
+                        val t = if (x.optString("type") == "voice")
+                            x.optString("transcript").ifEmpty { x.optString("content").ifEmpty { "[语音]" } }
+                        else x.optString("content")
+                        sb.append("· ").append(t.take(60)).append("\n")
+                    }
+                    if (items.length() > 5) sb.append("仅显示最近 5 条")
+                    queryResult.text = sb.toString().trimEnd()
+                } catch (e: Exception) { queryResult.text = "查询失败" }
+            }
+        }.start()
     }
 
     @SuppressLint("MissingPermission")
@@ -267,6 +333,7 @@ class MainActivity : Activity() {
         Thread {
             val body = JSONObject().apply {
                 put("type", "text")
+                put("uid", myUid)
                 put("content", content)
                 put("tag", selectedTag)
                 put("ts", System.currentTimeMillis())
@@ -385,6 +452,7 @@ class MainActivity : Activity() {
         Thread {
             val body = JSONObject().apply {
                 put("type", "voice")
+                put("uid", myUid)
                 put("content", voiceNote.text.toString().trim())
                 put("transcript", asrText.text.toString().trim())
                 put("tag", selectedTag)
